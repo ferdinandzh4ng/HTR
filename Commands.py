@@ -3,6 +3,7 @@ Command Executor - Execute pyautogui commands and take screenshots
 """
 import pyautogui
 import os
+import time
 from datetime import datetime
 from typing import Optional, Tuple
 import sys
@@ -78,18 +79,38 @@ def execute_command(command: str, x: Optional[int] = None, y: Optional[int] = No
             if x is None or y is None:
                 print("Error: x and y coordinates required for double click command")
                 return False
-            pyautogui.doubleClick(x, y)
+            # Move to position first, then double click (more reliable on macOS)
+            pyautogui.moveTo(x, y, duration=0.1)
+            time.sleep(0.1)  # Small delay to ensure mouse is positioned
+            # Use manual double click (more reliable than doubleClick on macOS)
+            pyautogui.click(x, y)
+            time.sleep(0.05)  # Small delay between clicks (macOS double-click timing)
+            pyautogui.click(x, y)
             print(f"Double clicked at ({x}, {y})")
             
         elif command_lower == "scroll" or command_lower == "scroll down":
             scroll = scroll_amount if scroll_amount is not None else 3
+            # Move mouse to position first if coordinates provided (to scroll the right element)
+            if x is not None and y is not None:
+                pyautogui.moveTo(x, y, duration=0.1)
+                time.sleep(0.1)  # Small delay to ensure mouse is positioned
             pyautogui.scroll(-scroll)
-            print(f"Scrolled down {scroll} units")
+            if x is not None and y is not None:
+                print(f"Scrolled down {scroll} units at ({x}, {y})")
+            else:
+                print(f"Scrolled down {scroll} units")
             
         elif command_lower == "scroll up":
             scroll = scroll_amount if scroll_amount is not None else 3
+            # Move mouse to position first if coordinates provided (to scroll the right element)
+            if x is not None and y is not None:
+                pyautogui.moveTo(x, y, duration=0.1)
+                time.sleep(0.1)  # Small delay to ensure mouse is positioned
             pyautogui.scroll(scroll)
-            print(f"Scrolled up {scroll} units")
+            if x is not None and y is not None:
+                print(f"Scrolled up {scroll} units at ({x}, {y})")
+            else:
+                print(f"Scrolled up {scroll} units")
             
         elif command_lower == "type":
             pyautogui.write(text)
