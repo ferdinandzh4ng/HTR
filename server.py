@@ -1,5 +1,5 @@
 """
-Server - Handles ChatGPT integration, screenshots, and command execution loop
+Server - Handles Claude integration, screenshots, and command execution loop
 Uses triage.py for accurate coordinate finding
 """
 import os
@@ -11,7 +11,7 @@ import platform
 from io import BytesIO
 from typing import Dict, Optional, List, Tuple
 from flask import Flask, request, jsonify
-from openai import OpenAI
+from anthropic import Anthropic
 import dotenv
 from Commands import execute_command, take_screenshot
 from triage import find_element_coordinates
@@ -21,12 +21,12 @@ dotenv.load_dotenv()
 
 app = Flask(__name__)
 
-# Initialize OpenAI client
-api_key = os.getenv("OPENAI_API_KEY")
+# Initialize Anthropic client
+api_key = os.getenv("ANTHROPIC_API_KEY")
 if not api_key:
-    print("⚠️  WARNING: OPENAI_API_KEY not found in environment variables!")
-    print("💡 Please set OPENAI_API_KEY in your .env file or environment")
-client = OpenAI(api_key=api_key) if api_key else None
+    print("⚠️  WARNING: ANTHROPIC_API_KEY not found in environment variables!")
+    print("💡 Please set ANTHROPIC_API_KEY in your .env file or environment")
+client = Anthropic(api_key=api_key) if api_key else None
 
 # Store conversation history for each task
 task_history: Dict[str, List[Dict]] = {}
@@ -62,7 +62,7 @@ def get_screenshot_base64() -> str:
 
 def parse_command_response(response_text: str) -> Optional[Dict]:
     """
-    Parse ChatGPT's response to extract command information.
+    Parse Claude's response to extract command information.
     Expected format: JSON with command, element_to_find, x, y, text, scroll_amount, key, etc.
     """
     content = response_text.strip()
@@ -90,14 +90,10 @@ def parse_command_response(response_text: str) -> Optional[Dict]:
 def get_next_command(user_request: str, screenshot_base64: str, 
                      previous_commands: List[Dict], task_id: str) -> Optional[Dict]:
     """
-    Send screenshot and user request to ChatGPT to get the next command.
-    ChatGPT will determine what element to find, then we use triage.py for accurate coordinates.
+    Send screenshot and user request to Claude to get the next command.
+    Claude will determine what element to find, then we use triage.py for accurate coordinates.
     """
-    # Build conversation history
-    messages = [
-        {
-            "role": "system",
-            "content": """You are an AI assistant that helps users automate tasks on their computer screen.
+    system_prompt = """You are an AI assistant that helps users automate tasks on their computer screen.
 You analyze screenshots and determine the next action needed to complete the user's request.
 
 You must return ONLY a JSON object with the following structure:
@@ -164,8 +160,9 @@ ALWAYS be specific: Include the app type (browser, music app, etc.) to avoid con
 
 Set "task_complete": true when the user's request has been fully completed.
 IMPORTANT: IGNORE ALL TERMINAL OUTPUT AND CODE BLOCKS when describing elements to find."""
-        }
-    ]
+    
+    # Build messages array for Claude
+    messages = []
     
     # Add previous commands context if any
     if previous_commands:
@@ -185,15 +182,22 @@ IMPORTANT: IGNORE ALL TERMINAL OUTPUT AND CODE BLOCKS when describing elements t
             "role": "user",
             "content": context
         })
+        # Add a simple assistant acknowledgment
+        messages.append({
+            "role": "assistant",
+            "content": "I understand the previous actions. I'll analyze the current screenshot to determine the next step."
+        })
     
     # Add current screenshot and request
     messages.append({
         "role": "user",
         "content": [
             {
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/png;base64,{screenshot_base64}"
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": screenshot_base64
                 }
             },
             {
@@ -204,19 +208,20 @@ IMPORTANT: IGNORE ALL TERMINAL OUTPUT AND CODE BLOCKS when describing elements t
     })
     
     if not client:
-        print("❌ OpenAI client not initialized. Please set OPENAI_API_KEY.")
+        print("❌ Anthropic client not initialized. Please set ANTHROPIC_API_KEY.")
         return None
     
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o",  # Vision-capable model
+        response = client.messages.create(
+            model="claude-sonnet-4-5-20250929",  # Latest Claude Sonnet
+            max_tokens=1024,
+            system=system_prompt,
             messages=messages,
-            max_tokens=500,
             temperature=0.3  # Lower temperature for more consistent command generation
         )
         
-        response_text = response.choices[0].message.content
-        print(f"🤖 ChatGPT Response: {response_text}\n")
+        response_text = response.content[0].text
+        print(f"🤖 Claude Response: {response_text}\n")
         
         command_dict = parse_command_response(response_text)
         if command_dict:
@@ -225,7 +230,7 @@ IMPORTANT: IGNORE ALL TERMINAL OUTPUT AND CODE BLOCKS when describing elements t
         
         return None
     except Exception as e:
-        print(f"❌ Error calling ChatGPT: {e}")
+        print(f"❌ Error calling Claude: {e}")
         return None
 
 
@@ -233,8 +238,8 @@ def execute_task(user_request: str, task_id: str) -> Dict:
     """
     Main task execution loop:
     1. Take screenshot
-    2. Send to ChatGPT with user request
-    3. Get command from ChatGPT (with element_to_find if needed)
+    2. Send to Claude with user request
+    3. Get command from Claude (with element_to_find if needed)
     4. Use triage.py to find accurate coordinates if element_to_find is provided
     5. Execute command
     6. Take new screenshot
@@ -256,14 +261,14 @@ def execute_task(user_request: str, task_id: str) -> Dict:
         print("📸 Taking screenshot...")
         screenshot_base64 = get_screenshot_base64()
         
-        # Get next command from ChatGPT
-        print("🤖 Consulting ChatGPT...")
+        # Get next command from Claude
+        print("🤖 Consulting Claude...")
         command_dict = get_next_command(user_request, screenshot_base64, previous_commands, task_id)
         
         if not command_dict:
             return {
                 "success": False,
-                "error": "Failed to get command from ChatGPT",
+                "error": "Failed to get command from Claude",
                 "iterations": iteration
             }
         
@@ -316,7 +321,7 @@ def execute_task(user_request: str, task_id: str) -> Dict:
                 print(f"✅ Coordinates found: ({x}, {y})")
             else:
                 print(f"⚠️  Could not find element: '{element_description}'")
-                # Continue anyway, might work with ChatGPT's coordinates if provided
+                # Continue anyway, might work with Claude's coordinates if provided
                 if command_dict.get('x') is None or command_dict.get('y') is None:
                     print("⚠️  No coordinates available, skipping this command")
                     previous_commands.append(command_dict)
@@ -337,7 +342,7 @@ def execute_task(user_request: str, task_id: str) -> Dict:
         
         if not success:
             print(f"⚠️  Command execution failed: {command_dict.get('command', 'unknown')}")
-            # Continue anyway, ChatGPT will see the result in next screenshot
+            # Continue anyway, Claude will see the result in next screenshot
         
         # Store command in history
         previous_commands.append(command_dict)
@@ -406,7 +411,7 @@ if __name__ == '__main__':
     
     print("🚀 Starting HTR Server...")
     print(f"📡 Server will run on http://localhost:{port}")
-    print("💡 Make sure OPENAI_API_KEY and ANTHROPIC_API_KEY are set in your .env file\n")
+    print("💡 Make sure ANTHROPIC_API_KEY is set in your .env file\n")
     
     try:
         app.run(host='0.0.0.0', port=port, debug=True)
@@ -416,4 +421,3 @@ if __name__ == '__main__':
             print(f"💡 Try setting a different port: PORT=5002 python server.py")
             sys.exit(1)
         raise
-
