@@ -148,12 +148,36 @@ def execute_command(command: str, x: Optional[int] = None, y: Optional[int] = No
                 return False
             pyautogui.dragTo(x, y, duration=0.5)
             print(f"Dragged to ({x}, {y})")
-            
+        
+        elif command_lower == "open tab" or command_lower == "new tab":
+            # Open new tab: Ctrl+T (Windows/Linux) or Cmd+T (macOS)
+            if platform.system() == "Darwin":  # macOS
+                pyautogui.keyDown('command')
+                pyautogui.press('t')
+                pyautogui.keyUp('command')
+            else:
+                pyautogui.keyDown('ctrl')
+                pyautogui.press('t')
+                pyautogui.keyUp('ctrl')
+            print("Opened new tab")
+        
+        elif command_lower == "close tab":
+            # Close tab: Ctrl+W (Windows/Linux) or Cmd+W (macOS)
+            if platform.system() == "Darwin":  # macOS
+                pyautogui.keyDown('command')
+                pyautogui.press('w')
+                pyautogui.keyUp('command')
+            else:
+                pyautogui.keyDown('ctrl')
+                pyautogui.press('w')
+                pyautogui.keyUp('ctrl')
+            print("Closed tab")
+        
         else:
             print(f"Error: Unknown command '{command}'")
             print("Supported commands: left click, right click, middle click, double click,")
             print("  scroll, scroll up, volume up, volume down, type, press <key>,")
-            print("  move mouse, drag")
+            print("  move mouse, drag, open tab, close tab")
             return False
         
         return True
@@ -178,6 +202,7 @@ def parse_command_line():
         print("  type - requires --text \"text to type\"")
         print("  press - requires --key \"key_name\" (e.g., enter, escape, tab, space, etc.)")
         print("  move mouse, drag - requires x, y")
+        print("  open tab, close tab - keyboard shortcuts (Ctrl+T/Ctrl+W or Cmd+T/Cmd+W on macOS)")
         print("\nExamples:")
         print("  python screen_finder.py left_click 100 200")
         print("  python screen_finder.py type --text \"Hello World\"")
